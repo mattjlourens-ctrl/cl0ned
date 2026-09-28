@@ -109,16 +109,14 @@ Do not build any of the following unless explicitly asked:
 - **Link out, don't host.** Send users to the official repo. Never copy or serve third-party code from this app.
 - **Say when a match is weak.** A repo that is merely related to the tool is not a replacement. Don't present loose matches as equivalents.
 
-## Open decisions (ask before assuming)
+## Decisions (made 2026-09-27)
 
-These have not been decided. Do not pick silently. Propose options and ask.
-
-- **Sources:** GitHub only at first, or others (GitLab, Codeberg, project sites)?
-- **Search approach:** live search on each query, or a pre-built index?
-- **What counts as a match:** how a repo is judged to be a real replacement for a paid product.
-- **Safety filter signals:** which checks to run, and what causes a repo to be flagged or removed.
-- **Target user:** non-technical people who want something that works, or people comfortable running code from a repo? This affects how results are filtered (many repos are libraries, not usable products).
-- **Tech stack:** language, framework, and how LLM calls are used.
+- **Sources:** GitHub only for v1.
+- **Search approach:** live GitHub search on each query. No pre-built index.
+- **What counts as a match:** Claude reads each candidate's description and README and labels it `replacement`, `partial`, or `related only`, with a one-line reason. Weak matches are shown as weak, never as equivalents.
+- **Safety filter signals:** (1) repo health basics from GitHub metadata: archived, last commit age, license present, is a fork, repo age, stars, contributors; (2) OpenSSF Scorecard (api.securityscorecards.dev), shown as "not available" when a repo hasn't been scanned. Failures are shown as flags. Only severe failures remove a repo. Exactly which failures count as severe, and the thresholds, are still to be confirmed.
+- **Target user:** both. Each result is labelled `ready to use` (GitHub Releases with installer files, or a homepage that looks like a hosted app) or `needs setup` (everything else). This label comes from data, not from Claude.
+- **Tech stack:** TypeScript + Next.js. Claude is used only for match judging.
 
 ## How to work in this repo
 
