@@ -9,7 +9,7 @@ Human decisions (asked in two rounds, because matching and safety depend on targ
 - Sources: GitHub only
 - Search: live, no index
 - Target user: both, with a "ready to use" / "needs setup" label based on releases and homepage
-- Stack: TypeScript + Next.js (Claude recommended Python for readability; the human chose TS)
+- Stack: TypeScript + Next.js (Python was the alternative considered, for readability; the human chose TypeScript)
 - Matching: Claude judges each README → replacement / partial / related only
 - Safety: repo health basics + OpenSSF Scorecard; flag failures, remove only severe ones
 
