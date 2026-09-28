@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { RepoResult } from "@/lib/github";
+import type { Readiness } from "@/lib/readiness";
 import styles from "./page.module.css";
 
 // GitHub uses "NOASSERTION" when a repo has a license file it can't identify.
@@ -13,6 +14,37 @@ function describeLicense(result: RepoResult): { text: string; flagged: boolean }
     return { text: "Unrecognized license. Check the repo before using.", flagged: true };
   }
   return { text: result.licenseName ?? result.license, flagged: false };
+}
+
+// Tells the user honestly how much work it takes to start using the repo. We never install anything for them.
+function ReadinessLabel({ readiness }: { readiness: Readiness }) {
+  if (readiness.status === "installer") {
+    return (
+      <p>
+        <strong>Installer available</strong> (
+        {readiness.platforms.length > 0 ? readiness.platforms.join(", ") : "platform not stated"}).
+        Download it from the{" "}
+        <a href={readiness.releaseUrl ?? undefined} target="_blank" rel="noopener noreferrer">
+          latest release
+        </a>{" "}
+        and install it yourself.
+      </p>
+    );
+  }
+  if (readiness.status === "needs-setup") {
+    return (
+      <p>
+        <strong>Needs setup.</strong> No installer download found. You&apos;ll have to follow the
+        repo&apos;s instructions to build or run it yourself.
+      </p>
+    );
+  }
+  return (
+    <p>
+      <strong>Setup unknown.</strong> We couldn&apos;t check for an installer. See the repo for how
+      to get it.
+    </p>
+  );
 }
 
 function formatDate(isoDate: string): string {
@@ -102,7 +134,11 @@ export default function Home() {
                 </a>
                 {result.description && <p>{result.description}</p>}
                 <p className={license.flagged ? styles.flag : undefined}>License: {license.text}</p>
+                <ReadinessLabel readiness={result.readiness} />
                 <p>Last code update: {formatDate(result.lastUpdated)}</p>
+                <a href={result.url} target="_blank" rel="noopener noreferrer">
+                  View on GitHub: {result.url}
+                </a>
               </li>
             );
           })}
