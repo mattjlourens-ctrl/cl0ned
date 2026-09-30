@@ -1,6 +1,6 @@
 // Works out how a non-developer can get a repo running, from data we fetched from GitHub.
-// Everything here is deterministic: commands are copied exactly as the README writes them,
-// and build steps are only suggested for files that really exist in the repo.
+// Everything here is deterministic: README commands are only shown if they fully match a strict
+// allowlist, and build steps are only suggested for files that really exist in the repo.
 // Pure functions only, so this file is used by both the server and the browser.
 
 import { installerPlatforms } from "./readiness";
@@ -37,7 +37,10 @@ export type SetupInfo = {
   downloads: Download[];
   packageCommands: PackageCommand[];
   dockerCommands: DockerCommand[];
-  pipedScripts: string[]; // "curl … | sh" style commands. Never shown as the main option.
+  // The README has install steps we didn't accept (see the allowlist below), so point to it.
+  uncheckedReadmeSteps: boolean;
+  // One of those runs a remote script ("curl … | sh"). Never shown as a command.
+  readmeHasRemoteScript: boolean;
   buildFromSource: BuildFromSource | null;
 };
 
@@ -115,16 +118,115 @@ export function isPipedScript(command: string): boolean {
   );
 }
 
+// ---------- Allowlist for README commands ----------
+//
+// A README command is only shown if it FULLY matches one of the strict patterns below. Anything
+// else (extra "&& …", "; …", "$(…)", pipes, redirects, newlines, unknown flags) is not shown,
+// and the panel points to the README instead. We copy commands to the user's clipboard, so a
+// command that does more than install the project must never get through.
+
+// A package name: letters, digits and @ / . _ -, starting with a letter, digit or @ (not "-", so
+// it can't be an option, and not "." or "/", so it can't be a local file).
+const PACKAGE_NAME = "[A-Za-z0-9@][A-Za-z0-9@/._-]*";
+// Same, without "@" and "/" (winget ids, flatpak ids, pip and snap names).
+const PLAIN_NAME = "[A-Za-z0-9][A-Za-z0-9._-]*";
+
 const PACKAGE_PATTERNS: { manager: string; pattern: RegExp; platforms: OS[] | "any" }[] = [
-  { manager: "Homebrew", pattern: /^brew install\s/, platforms: ["Mac"] },
-  { manager: "winget", pattern: /^winget install\s/, platforms: ["Windows"] },
-  { manager: "Snap", pattern: /^(sudo\s+)?snap install\s/, platforms: ["Linux"] },
-  { manager: "Flatpak", pattern: /^(sudo\s+)?flatpak install\s/, platforms: ["Linux"] },
+  { manager: "Homebrew", pattern: new RegExp(`^brew install (--cask )?${PACKAGE_NAME}$`), platforms: ["Mac"] },
+  {
+    manager: "winget",
+    pattern: new RegExp(`^winget install( (-e|--exact|--id))* ${PLAIN_NAME}$`),
+    platforms: ["Windows"],
+  },
+  { manager: "Snap", pattern: new RegExp(`^(sudo )?snap install ${PLAIN_NAME}( --classic)?$`), platforms: ["Linux"] },
+  {
+    manager: "Flatpak",
+    pattern: new RegExp(`^(sudo )?flatpak install( -y)?( flathub)? ${PLAIN_NAME}$`),
+    platforms: ["Linux"],
+  },
   // Only global installs and npx: a plain "npm install" is a developer adding a library.
-  { manager: "npm", pattern: /^(npm (install|i) (-g|--global)\s|npx\s+\S)/, platforms: "any" },
-  // Excludes "pip install -r requirements.txt", "pip install -e ." and "pip install ." (developer setup).
-  { manager: "pip", pattern: /^(pipx install\s|pip3? install\s+(?!-r\b|-e\b|\.))/, platforms: "any" },
+  { manager: "npm", pattern: new RegExp(`^npm (i|install) (-g|--global) ${PACKAGE_NAME}$`), platforms: "any" },
+  { manager: "npm", pattern: new RegExp(`^npx( -y| --yes)? ${PACKAGE_NAME}$`), platforms: "any" },
+  // The name can't start with "-" or ".", so "pip install -r …", "-e ." and "." never match.
+  {
+    manager: "pip",
+    pattern: new RegExp(`^(pipx install|pip3? install( --user| -U| --upgrade)?) ${PLAIN_NAME}$`),
+    platforms: "any",
+  },
 ];
+
+// Newlines, tabs and other control characters (incl. \r) are never allowed in a command.
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
+export function strictPackageCommand(command: string): PackageCommand | null {
+  if (CONTROL_CHARACTERS.test(command)) return null;
+  const match = PACKAGE_PATTERNS.find(({ pattern }) => pattern.test(command));
+  return match ? { manager: match.manager, command, platforms: match.platforms } : null;
+}
+
+// docker run: every flag must be on this list, with a value of the expected shape.
+// Anything not listed (--privileged, --pid=host, --network=host, --cap-add, --device, …) is rejected.
+const DOCKER_FLAGS_WITHOUT_VALUE = ["-d", "--detach", "-i", "-t", "-it", "-ti", "--rm", "--init"];
+const DOCKER_FLAG_VALUES: Record<string, RegExp> = {
+  "-p": /^(\d{1,3}(\.\d{1,3}){3}:)?\d{1,5}(:\d{1,5})?(\/(tcp|udp))?$/,
+  "--name": /^[A-Za-z0-9][A-Za-z0-9_.-]*$/,
+  "-e": /^[A-Za-z_][A-Za-z0-9_]*(=[A-Za-z0-9_.:/@-]*)?$/,
+  "-v": /^.+$/, // checked separately by safeVolume
+  "--restart": /^(no|always|unless-stopped|on-failure(:\d+)?)$/,
+  "--pull": /^(always|missing|never)$/,
+  "--platform": /^linux\/[a-z0-9]+(\/[a-z0-9]+)?$/,
+};
+const DOCKER_FLAG_ALIASES: Record<string, string> = { "--publish": "-p", "--env": "-e", "--volume": "-v" };
+const DOCKER_IMAGE = /^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$/;
+
+// A volume may only mount a folder *inside* the current folder ("./data", "$PWD/data") or a
+// named Docker volume ("pgdata"). Never an absolute host path ("/", "/home", "/var/run/docker.sock"),
+// the home folder ("~", "$HOME"), the bare current folder (often the home folder in a fresh
+// terminal), or anything with ".." (which can climb back up to them).
+export function safeVolume(value: string): boolean {
+  const match = value.match(/^([^:]+):(\/[A-Za-z0-9_./-]*)(:(ro|rw))?$/);
+  if (!match) return false;
+  const source = match[1];
+  if (source.split("/").includes("..")) return false;
+  return (
+    /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(source) ||
+    /^(\.|\$PWD|\$\{PWD\})\/[A-Za-z0-9_.-][A-Za-z0-9_./-]*$/.test(source)
+  );
+}
+
+// Returns the command as a single line (continuation "\" joined) if it's allowed, else null.
+export function strictDockerRun(command: string): string | null {
+  const oneLine = command.replace(/[ \t]*\\\n[ \t]*/g, " ").replace(/[ \t]+/g, " ").trim();
+  if (CONTROL_CHARACTERS.test(oneLine)) return null;
+
+  const tokens = oneLine.split(" ");
+  let i = tokens[0] === "sudo" ? 1 : 0;
+  if (tokens[i] !== "docker" || tokens[i + 1] !== "run") return null;
+  i += 2;
+
+  while (i < tokens.length - 1) {
+    const token = tokens[i];
+    if (DOCKER_FLAGS_WITHOUT_VALUE.includes(token)) {
+      i += 1;
+      continue;
+    }
+    // Accept both "--name x" and "--name=x".
+    const [rawFlag, inlineValue] = token.includes("=") && token.startsWith("--")
+      ? [token.slice(0, token.indexOf("=")), token.slice(token.indexOf("=") + 1)]
+      : [token, undefined];
+    const flag = DOCKER_FLAG_ALIASES[rawFlag] ?? rawFlag;
+    const valuePattern = DOCKER_FLAG_VALUES[flag];
+    if (!valuePattern) return null;
+    const value = inlineValue ?? tokens[i + 1];
+    if (value === undefined || !valuePattern.test(value)) return null;
+    if (flag === "-v" && !safeVolume(value)) return null;
+    i += inlineValue === undefined ? 2 : 1;
+  }
+
+  // The image must be the very last token: no container command or arguments after it.
+  if (i !== tokens.length - 1 || !DOCKER_IMAGE.test(tokens[i])) return null;
+  return oneLine;
+}
 
 // READMEs also show commands for developer tools ("brew install create-dmg", "npm install -g
 // @microsoft/rush", "docker run postgres"). A command only counts if it names the project itself:
@@ -138,23 +240,38 @@ export function namesProject(command: string, fullName: string): boolean {
     .some((name) => name.length >= 3 && text.includes(name));
 }
 
-export function packageCommandsFrom(commands: string[], fullName: string): PackageCommand[] {
-  const found: PackageCommand[] = [];
-  for (const command of commands) {
-    if (isPipedScript(command) || command.includes("\n") || !namesProject(command, fullName)) continue;
-    const match = PACKAGE_PATTERNS.find(({ pattern }) => pattern.test(command));
-    if (match) found.push({ manager: match.manager, command, platforms: match.platforms });
-  }
-  return found;
-}
+// Commands that look like installing or running something, whether or not we accept them.
+const LOOKS_LIKE_INSTALL =
+  /^(sudo\s+)?(brew|winget|snap|flatpak|npm|npx|pipx?|pip3|docker|docker-compose|curl|wget|iwr|irm)\b/i;
 
-export function dockerRunCommandsFrom(commands: string[], fullName: string): string[] {
-  return commands.filter(
-    (command) =>
-      /^(sudo\s+)?docker run\s/.test(command) &&
-      !isPipedScript(command) &&
-      namesProject(command, fullName),
-  );
+export type ReadmeInstallCommands = {
+  packageCommands: PackageCommand[];
+  dockerRunCommands: string[];
+  // The README has install steps for this project that we didn't accept, so point to the README.
+  hasUncheckedSteps: boolean;
+  // One of those is a "curl … | sh" style script that runs remote code.
+  hasRemoteScript: boolean;
+};
+
+export function readmeInstallCommands(commands: string[], fullName: string): ReadmeInstallCommands {
+  const result: ReadmeInstallCommands = {
+    packageCommands: [],
+    dockerRunCommands: [],
+    hasUncheckedSteps: false,
+    hasRemoteScript: false,
+  };
+  for (const command of commands) {
+    if (!namesProject(command, fullName)) continue;
+    const packageCommand = strictPackageCommand(command);
+    const dockerRun = packageCommand ? null : strictDockerRun(command);
+    if (packageCommand) result.packageCommands.push(packageCommand);
+    else if (dockerRun) result.dockerRunCommands.push(dockerRun);
+    else if (LOOKS_LIKE_INSTALL.test(command) || isPipedScript(command)) {
+      result.hasUncheckedSteps = true;
+      if (isPipedScript(command)) result.hasRemoteScript = true;
+    }
+  }
+  return result;
 }
 
 // Normalises a URL so "https://www.app.com/" and "http://app.com" compare equal.

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion, MotionConfig } from "motion/react";
 import type { RepoResult } from "@/lib/github";
 import type { Readiness } from "@/lib/readiness";
+import { MAX_QUERY_LENGTH } from "@/lib/limits";
 import { osFromUserAgent } from "@/lib/setup";
 import SetupPanel from "./SetupPanel";
 import WireTorus from "./WireTorus";
@@ -194,6 +195,7 @@ export default function Home() {
               type="text"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              maxLength={MAX_QUERY_LENGTH}
               placeholder="What do you pay for? Try Notion, Photoshop, Grammarly…"
               className={styles.input}
             />

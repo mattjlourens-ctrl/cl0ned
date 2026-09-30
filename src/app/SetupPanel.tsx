@@ -4,8 +4,12 @@ import { useState } from "react";
 import { rankOptions, type OS, type SetupInfo, type SetupOption } from "@/lib/setup";
 import styles from "./SetupPanel.module.css";
 
-// A command in a code block with a one-click copy button.
-function CopyBlock({ command }: { command: string }) {
+// Where a command came from: copied from the README (after the allowlist check), or written
+// by us from the files in the repo (build steps, Docker Compose).
+type CommandSource = "README" | "repo files";
+
+// A command in a code block with a one-click copy button. Every command gets the Unverified tag.
+function CopyBlock({ command, source }: { command: string; source: CommandSource }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -23,6 +27,7 @@ function CopyBlock({ command }: { command: string }) {
       <pre>
         <code>{command}</code>
       </pre>
+      <Unverified source={source} />
       <button type="button" onClick={copy} className={styles.copyButton}>
         {copied ? "Copied" : "Copy"}
       </button>
@@ -30,11 +35,11 @@ function CopyBlock({ command }: { command: string }) {
   );
 }
 
-// Stays next to every download and hosted link until the safety filter exists.
-function Unverified() {
+// Stays next to every download, hosted link and command until the safety filter exists.
+function Unverified({ source }: { source?: CommandSource }) {
   return (
     <span className={styles.unverified} title="Not yet checked by a safety filter.">
-      Unverified
+      Unverified{source && ` · from ${source}`}
     </span>
   );
 }
@@ -87,7 +92,7 @@ function OptionView({ option, primary }: { option: SetupOption; primary: boolean
           Install with {manager}
           {platforms !== "any" && ` (${platforms.join(", ")})`}
         </p>
-        <CopyBlock command={command} />
+        <CopyBlock command={command} source="README" />
       </div>
     );
   }
@@ -100,15 +105,18 @@ function OptionView({ option, primary }: { option: SetupOption; primary: boolean
           Git and Docker.
         </p>
       )}
-      <CopyBlock command={option.command.command} />
+      <CopyBlock
+        command={option.command.command}
+        source={option.command.source === "readme" ? "README" : "repo files"}
+      />
     </div>
   );
 }
 
-function ReadmeLink({ setup }: { setup: SetupInfo }) {
+function ReadmeLink({ setup, text = "see README" }: { setup: SetupInfo; text?: string }) {
   return (
     <a href={setup.readmeUrl} target="_blank" rel="noopener noreferrer" className={styles.inlineLink}>
-      see README
+      {text}
     </a>
   );
 }
@@ -139,6 +147,10 @@ export default function SetupPanel({ setup, os }: { setup: SetupInfo; os: OS | n
 
       {primary ? (
         <OptionView option={primary} primary />
+      ) : setup.uncheckedReadmeSteps ? (
+        <p className={styles.note}>
+          <ReadmeLink setup={setup} text="See README for install steps" />
+        </p>
       ) : (
         <p className={styles.note}>
           No easy install found — <ReadmeLink setup={setup} />
@@ -166,17 +178,18 @@ export default function SetupPanel({ setup, os }: { setup: SetupInfo; os: OS | n
         </details>
       )}
 
-      {setup.pipedScripts.length > 0 && (
-        <details className={styles.expander}>
-          <summary>Install script (runs remote code)</summary>
-          <p className={styles.note}>
-            The README also offers this. It downloads a script and runs it straight away, without
-            showing you what it does. Only use it if you trust the project.
-          </p>
-          {setup.pipedScripts.map((command) => (
-            <CopyBlock key={command} command={command} />
-          ))}
-        </details>
+      {/* README steps that failed the allowlist are never shown as commands, only pointed to. */}
+      {primary && setup.uncheckedReadmeSteps && (
+        <p className={styles.note}>
+          The README has other install steps we can&apos;t check automatically.{" "}
+          <ReadmeLink setup={setup} text="See README for install steps" />
+        </p>
+      )}
+      {setup.readmeHasRemoteScript && (
+        <p className={styles.note}>
+          One of the README&apos;s install steps downloads a script and runs it straight away,
+          without showing you what it does. Only use it if you trust the project.
+        </p>
       )}
 
       {build && (
@@ -209,7 +222,7 @@ export default function SetupPanel({ setup, os }: { setup: SetupInfo; os: OS | n
                 {step.command ? (
                   <>
                     <span>{step.label}</span>
-                    <CopyBlock command={step.command} />
+                    <CopyBlock command={step.command} source="repo files" />
                   </>
                 ) : (
                   <span>

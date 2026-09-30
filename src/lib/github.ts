@@ -1,17 +1,15 @@
 // Talks to the GitHub API. Runs on the server only, so the token never reaches the browser.
 
+import { BoundedCache } from "./boundedCache";
 import { readinessFromRelease, type Readiness } from "./readiness";
 import {
   buildFromSource,
   composeCommand,
   downloadsFromRelease,
-  dockerRunCommandsFrom,
   hasFile,
   hostedUrlFrom,
-  isPipedScript,
-  namesProject,
-  packageCommandsFrom,
   readmeCommands,
+  readmeInstallCommands,
   type RepoFiles,
   type SetupInfo,
 } from "./setup";
@@ -101,7 +99,8 @@ async function fetchSetup(repo: GitHubRepo, release: Release | null | "error"): 
     downloads: [],
     packageCommands: [],
     dockerCommands: [],
-    pipedScripts: [],
+    uncheckedReadmeSteps: false,
+    readmeHasRemoteScript: false,
     buildFromSource: null,
   };
   if (apiCallsLeft !== null && apiCallsLeft < KEEP_IN_RESERVE) return unavailable;
@@ -137,7 +136,7 @@ async function fetchSetup(repo: GitHubRepo, release: Release | null | "error"): 
     nvmrc,
     pythonVersion,
   };
-  const commands = readmeCommands(readme ?? "");
+  const fromReadme = readmeInstallCommands(readmeCommands(readme ?? ""), fullName);
   const compose = composeCommand(files);
   const releaseOk = release !== null && release !== "error";
 
@@ -147,25 +146,27 @@ async function fetchSetup(repo: GitHubRepo, release: Release | null | "error"): 
     hostedUrl: hostedUrlFrom(repo.homepage, readme ?? ""),
     releaseUrl: releaseOk ? release.html_url : null,
     downloads: releaseOk ? downloadsFromRelease(fullName, release.assets) : [],
-    packageCommands: packageCommandsFrom(commands, fullName),
+    packageCommands: fromReadme.packageCommands,
     dockerCommands: [
-      ...dockerRunCommandsFrom(commands, fullName).map((command) => ({ command, source: "readme" as const })),
+      ...fromReadme.dockerRunCommands.map((command) => ({ command, source: "readme" as const })),
       ...(compose ? [compose] : []),
     ],
-    // Only scripts for this project: READMEs also pipe installers for build tools (e.g. rustup).
-    pipedScripts: commands.filter(
-      (command) => isPipedScript(command) && namesProject(command, fullName),
-    ),
+    uncheckedReadmeSteps: fromReadme.hasUncheckedSteps,
+    readmeHasRemoteScript: fromReadme.hasRemoteScript,
     buildFromSource: buildFromSource(files),
   };
 }
 
 // Per-repo cache. A new push to the repo, or an hour passing, makes the entry stale.
+// Capped so a long-running server's memory can't keep growing (each entry is a few KB).
 const CACHE_HOURS = 1;
-const cache = new Map<
-  string,
-  { pushedAt: string; fetchedAt: number; readiness: Readiness; setup: SetupInfo }
->();
+const MAX_CACHED_REPOS = 1000;
+const cache = new BoundedCache<{
+  pushedAt: string;
+  fetchedAt: number;
+  readiness: Readiness;
+  setup: SetupInfo;
+}>(MAX_CACHED_REPOS);
 
 async function fetchDetails(repo: GitHubRepo): Promise<{ readiness: Readiness; setup: SetupInfo }> {
   const cached = cache.get(repo.full_name);
