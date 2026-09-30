@@ -43,7 +43,7 @@ const NOT_APP_WORDS = ["plugin", "server", "sdk"];
 
 // Returns the platforms this file installs on, or null if it isn't an installer.
 // An empty list means "an installer, but the name doesn't say which platform".
-function installerPlatforms(fileName: string): string[] | null {
+export function installerPlatforms(fileName: string): string[] | null {
   const lower = fileName.toLowerCase();
   // Compare whole words, not substrings: "darwin" contains "win" but is macOS, not Windows.
   const words = lower.split(/[^a-z0-9]+/);

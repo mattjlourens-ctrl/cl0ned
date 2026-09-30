@@ -1,0 +1,164 @@
+/* "Get it running" panel inside each result. Monochrome, hairlines, no boxes except code. */
+
+.panel {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.heading,
+.optionLabel,
+.unverified,
+.expander summary,
+.copyButton {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.heading {
+  margin-bottom: 12px;
+  color: var(--label);
+}
+
+.optionLabel {
+  margin: 12px 0 6px;
+  color: var(--muted);
+}
+
+.note {
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.muted {
+  font-size: 12px;
+  color: var(--label);
+}
+
+.inlineLink {
+  color: var(--foreground);
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The one main action on each card. */
+.primaryButton {
+  display: inline-block;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--background);
+  background: var(--foreground);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.primaryButton:hover {
+  color: var(--background);
+  background: var(--hover);
+}
+
+.unverified {
+  padding: 2px 6px;
+  font-size: 9px;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: 3px;
+}
+
+/* ---------- Code with copy button ---------- */
+
+.codeBlock {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 10px 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.codeBlock pre {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+
+.copyButton {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  font-family: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.copyButton:hover {
+  color: var(--hover);
+}
+
+/* ---------- Expanders ---------- */
+
+.expander {
+  margin-top: 12px;
+}
+
+.expander summary {
+  cursor: pointer;
+  color: var(--muted);
+  transition: color 0.2s;
+}
+
+.expander summary:hover {
+  color: var(--hover);
+}
+
+.expander[open] {
+  padding-bottom: 4px;
+}
+
+.expander[open] > summary {
+  margin-bottom: 8px;
+}
+
+.fileList,
+.prereqs {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.fileList a {
+  color: var(--foreground);
+  word-break: break-all;
+}
+
+.steps {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.steps li > span {
+  display: block;
+  margin-bottom: 4px;
+}

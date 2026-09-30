@@ -1,6 +1,20 @@
 // Talks to the GitHub API. Runs on the server only, so the token never reaches the browser.
 
 import { readinessFromRelease, type Readiness } from "./readiness";
+import {
+  buildFromSource,
+  composeCommand,
+  downloadsFromRelease,
+  dockerRunCommandsFrom,
+  hasFile,
+  hostedUrlFrom,
+  isPipedScript,
+  namesProject,
+  packageCommandsFrom,
+  readmeCommands,
+  type RepoFiles,
+  type SetupInfo,
+} from "./setup";
 
 export type RepoResult = {
   name: string; // "owner/repo"
@@ -10,6 +24,7 @@ export type RepoResult = {
   licenseName: string | null; // human-readable name like "MIT License"
   lastUpdated: string; // ISO date of the last push (code change), not metadata edits
   readiness: Readiness;
+  setup: SetupInfo;
 };
 
 // The parts of GitHub's search response we use.
@@ -18,6 +33,7 @@ type GitHubRepo = {
   html_url: string;
   description: string | null;
   pushed_at: string;
+  homepage: string | null;
   license: { spdx_id: string; name: string } | null;
 };
 
@@ -35,23 +51,138 @@ function githubHeaders(): Record<string, string> {
   return headers;
 }
 
-// Looks at the repo's latest release (GitHub skips drafts and pre-releases here).
-async function fetchReadiness(fullName: string): Promise<Readiness> {
-  const response = await fetch(`https://api.github.com/repos/${fullName}/releases/latest`, {
-    headers: githubHeaders(),
-  });
-  if (response.status === 404) {
-    // No releases at all.
-    return readinessFromRelease([], null);
-  }
-  if (!response.ok) {
-    return { status: "unknown", platforms: [], releaseUrl: null };
-  }
-  const release: { html_url: string; assets: { name: string }[] } = await response.json();
+// How many general (non-search) GitHub API calls we have left this hour, from the latest response.
+// The limit is 5,000/hour with a token. Each new repo costs up to 6 calls.
+let apiCallsLeft: number | null = null;
+const KEEP_IN_RESERVE = 200;
+
+async function githubGet(path: string, raw = false): Promise<Response> {
+  const headers = githubHeaders();
+  if (raw) headers.Accept = "application/vnd.github.raw+json";
+  const response = await fetch(`https://api.github.com/repos/${path}`, { headers });
+  const remaining = response.headers.get("x-ratelimit-remaining");
+  if (remaining !== null) apiCallsLeft = Number(remaining);
+  return response;
+}
+
+// A file's text, or null if it doesn't exist or can't be read.
+async function fetchText(path: string): Promise<string | null> {
+  const response = await githubGet(path, true);
+  return response.ok ? response.text() : null;
+}
+
+type Release = { html_url: string; assets: { name: string; browser_download_url: string }[] };
+
+// The repo's latest release (GitHub skips drafts and pre-releases here).
+// null = no releases at all; "error" = we couldn't check.
+async function fetchLatestRelease(fullName: string): Promise<Release | null | "error"> {
+  const response = await githubGet(`${fullName}/releases/latest`);
+  if (response.status === 404) return null;
+  if (!response.ok) return "error";
+  return response.json();
+}
+
+function readinessFor(release: Release | null | "error"): Readiness {
+  if (release === "error") return { status: "unknown", platforms: [], releaseUrl: null };
+  if (release === null) return readinessFromRelease([], null);
   return readinessFromRelease(
     release.assets.map((asset) => asset.name),
     release.html_url,
   );
+}
+
+async function fetchSetup(repo: GitHubRepo, release: Release | null | "error"): Promise<SetupInfo> {
+  const fullName = repo.full_name;
+  const unavailable: SetupInfo = {
+    status: "unavailable",
+    readmeUrl: `${repo.html_url}#readme`,
+    hostedUrl: null,
+    releaseUrl: null,
+    downloads: [],
+    packageCommands: [],
+    dockerCommands: [],
+    pipedScripts: [],
+    buildFromSource: null,
+  };
+  if (apiCallsLeft !== null && apiCallsLeft < KEEP_IN_RESERVE) return unavailable;
+
+  const [readme, contentsResponse] = await Promise.all([
+    fetchText(`${fullName}/readme`),
+    githubGet(`${fullName}/contents/`),
+  ]);
+  if (!contentsResponse.ok) return unavailable;
+  const contents: { name: string; type: string }[] = await contentsResponse.json();
+  const rootFiles = contents.filter((item) => item.type === "file").map((item) => item.name);
+
+  // Only fetch these small files when the repo has them.
+  const fetchIfPresent = (name: string) =>
+    hasFile(rootFiles, name) ? fetchText(`${fullName}/contents/${name}`) : Promise.resolve(null);
+  const [packageJsonText, nvmrc, pythonVersion] = await Promise.all([
+    fetchIfPresent("package.json"),
+    fetchIfPresent(".nvmrc"),
+    fetchIfPresent(".python-version"),
+  ]);
+  let packageJson: RepoFiles["packageJson"] = null;
+  try {
+    packageJson = packageJsonText ? JSON.parse(packageJsonText) : null;
+  } catch {
+    // An unreadable package.json just means no version or start command.
+  }
+
+  const files: RepoFiles = {
+    cloneUrl: `${repo.html_url}.git`,
+    folderName: fullName.split("/")[1],
+    rootFiles,
+    packageJson,
+    nvmrc,
+    pythonVersion,
+  };
+  const commands = readmeCommands(readme ?? "");
+  const compose = composeCommand(files);
+  const releaseOk = release !== null && release !== "error";
+
+  return {
+    status: "ok",
+    readmeUrl: `${repo.html_url}#readme`,
+    hostedUrl: hostedUrlFrom(repo.homepage, readme ?? ""),
+    releaseUrl: releaseOk ? release.html_url : null,
+    downloads: releaseOk ? downloadsFromRelease(fullName, release.assets) : [],
+    packageCommands: packageCommandsFrom(commands, fullName),
+    dockerCommands: [
+      ...dockerRunCommandsFrom(commands, fullName).map((command) => ({ command, source: "readme" as const })),
+      ...(compose ? [compose] : []),
+    ],
+    // Only scripts for this project: READMEs also pipe installers for build tools (e.g. rustup).
+    pipedScripts: commands.filter(
+      (command) => isPipedScript(command) && namesProject(command, fullName),
+    ),
+    buildFromSource: buildFromSource(files),
+  };
+}
+
+// Per-repo cache. A new push to the repo, or an hour passing, makes the entry stale.
+const CACHE_HOURS = 1;
+const cache = new Map<
+  string,
+  { pushedAt: string; fetchedAt: number; readiness: Readiness; setup: SetupInfo }
+>();
+
+async function fetchDetails(repo: GitHubRepo): Promise<{ readiness: Readiness; setup: SetupInfo }> {
+  const cached = cache.get(repo.full_name);
+  if (
+    cached &&
+    cached.pushedAt === repo.pushed_at &&
+    Date.now() - cached.fetchedAt < CACHE_HOURS * 60 * 60 * 1000
+  ) {
+    return cached;
+  }
+  const release = await fetchLatestRelease(repo.full_name);
+  const details = { readiness: readinessFor(release), setup: await fetchSetup(repo, release) };
+  // Don't cache a skipped lookup, so it's retried once the rate limit recovers.
+  if (details.setup.status === "ok") {
+    cache.set(repo.full_name, { pushedAt: repo.pushed_at, fetchedAt: Date.now(), ...details });
+  }
+  return details;
 }
 
 export async function searchRepos(toolName: string): Promise<RepoResult[]> {
@@ -72,8 +203,8 @@ export async function searchRepos(toolName: string): Promise<RepoResult[]> {
   }
 
   const data: { items: GitHubRepo[] } = await response.json();
-  // Check every repo's releases at the same time rather than one after another.
-  return Promise.all(
+  // Look up every repo at the same time rather than one after another.
+  const results = await Promise.all(
     data.items.map(async (repo) => ({
       name: repo.full_name,
       url: repo.html_url,
@@ -81,7 +212,9 @@ export async function searchRepos(toolName: string): Promise<RepoResult[]> {
       license: repo.license?.spdx_id ?? null,
       licenseName: repo.license?.name ?? null,
       lastUpdated: repo.pushed_at,
-      readiness: await fetchReadiness(repo.full_name),
+      ...(await fetchDetails(repo)),
     })),
   );
+  console.log(`GitHub API calls left this hour: ${apiCallsLeft}`);
+  return results;
 }

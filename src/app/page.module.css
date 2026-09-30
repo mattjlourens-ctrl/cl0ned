@@ -1,60 +1,464 @@
-.main {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 48px 16px;
+/* Layout: every section is a 12-column grid with the same outer margins (--gutter). */
+.page {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Soft out-of-focus white light in the top-right corner, for depth without colour. */
+.glow {
+  position: absolute;
+  top: -260px;
+  right: -220px;
+  width: 720px;
+  height: 620px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, transparent 70%);
+  filter: blur(110px);
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+/* Small uppercase labels are used everywhere; this is the shared look. */
+.navLinks,
+.heroLabels,
+.footerLabel,
+.projectNames {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* ---------- Nav ---------- */
+
+.nav {
+  position: relative;
+  z-index: 2;
+  padding-inline: var(--gutter);
+}
+
+.navRow {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding-block: 22px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.logoMark {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--foreground);
+  border-radius: 50%;
+  box-shadow: 5px 0 0 -1.5px var(--background), 5px 0 0 0 var(--foreground);
+}
+
+.navLinks {
+  display: flex;
+  gap: 40px;
+  color: var(--muted);
+}
+
+.navIcon {
+  justify-self: end;
+  display: inline-flex;
+  color: var(--muted);
+}
+
+/* ---------- Hero ---------- */
+
+.hero {
+  position: relative;
+  padding: clamp(48px, 9vh, 110px) var(--gutter) 0;
+  /* A faint lift behind the wordmark so it glows against the black. */
+  background: radial-gradient(ellipse 60% 55% at 50% 62%, #1a1a1a 0%, transparent 70%);
+}
+
+.torus {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* Fade the edges out so the wireframe never ends in a hard line. */
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, black 55%, transparent 100%);
+}
+
+.heroLabels {
+  position: relative;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  color: var(--label);
+}
+
+.heroLabels li::before {
+  content: "";
+  display: inline-block;
+  width: 24px;
+  height: 1px;
+  margin-right: 12px;
+  vertical-align: middle;
+  background: var(--label);
+}
+
+.heroLabels li:nth-child(2) {
+  text-align: right;
+}
+
+.wordmarkWrap {
+  position: relative;
+  text-align: center;
+}
+
+/* "cl0ned" is 6 characters; at this size it spans roughly 90% of the viewport. */
+.wordmark {
+  display: inline-block;
+  font-size: 29vw;
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  /* Vertical gradient clipped to the letters, so they look lit from above. */
+  background: linear-gradient(180deg, #f5f5f5 20%, #9a9a9a 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- Search ---------- */
+
+.searchRow {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  column-gap: 24px;
+  row-gap: 20px;
+  align-items: center;
+  margin-top: clamp(48px, 8vh, 96px);
+  padding-inline: var(--gutter);
 }
 
 .intro {
-  margin: 8px 0 24px;
+  grid-column: 1 / 4;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--foreground);
 }
 
 .form {
+  grid-column: 4 / 10;
   display: flex;
-  gap: 8px;
+  align-items: center;
+  padding: 4px 4px 4px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  transition: border-color 0.2s;
+}
+
+.form:focus-within {
+  border-color: var(--border-strong);
 }
 
 .input {
   flex: 1;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 14px 0;
+  font: inherit;
   font-size: 16px;
-  border: 1px solid #999;
-  border-radius: 6px;
+  color: var(--foreground);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--label);
+}
+
+.input::selection {
+  color: var(--hover);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Browser autofill paints its own (blue-gray) background, and a plain `background` can't
+   override it. Cover it with an inset shadow in the bar's colour and keep the text off-white. */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--foreground);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+  caret-color: var(--foreground);
+  transition: background-color 9999s ease-out 0s;
 }
 
 .button {
-  padding: 10px 16px;
-  font-size: 16px;
+  width: 44px;
+  height: 44px;
+  font: inherit;
+  font-size: 18px;
+  color: var(--muted);
+  background: transparent;
   border: none;
-  border-radius: 6px;
-  background: #222;
-  color: #fff;
+  border-radius: 3px;
   cursor: pointer;
+  transition: color 0.2s;
+}
+
+.button:hover {
+  color: var(--hover);
+}
+
+.button:disabled {
+  cursor: default;
+}
+
+.proof {
+  grid-column: 10 / 13;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.proofDots {
+  display: flex;
+}
+
+.proofDots span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: -8px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: #1a1a1a;
+  border: 1px solid var(--background);
+  border-radius: 50%;
+}
+
+.proofDots span:first-child {
+  margin-left: 0;
+}
+
+/* ---------- Messages ---------- */
+
+.resultsSection {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  column-gap: 24px;
+  padding: 48px var(--gutter) 96px;
+}
+
+.resultsSection > * {
+  grid-column: 3 / 11;
 }
 
 .empty,
-.notice,
 .error {
   margin-top: 24px;
+  text-align: center;
+  color: var(--muted);
 }
 
-.error,
-.flag {
-  color: #b00020;
-  font-weight: 600;
+.error {
+  color: var(--foreground);
 }
+
+.notice {
+  padding-bottom: 20px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--label);
+}
+
+/* ---------- Results: hairline rows instead of boxes ---------- */
 
 .results {
   list-style: none;
-  padding: 0;
-  margin-top: 24px;
 }
 
 .card {
-  padding: 16px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  margin-bottom: 12px;
+  padding-block: 28px;
+  border-top: 1px solid var(--hairline);
+}
+
+.card:last-child {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.repoName {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+
+.description {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.badge {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+/* Status badges are told apart by brightness and border, not colour. */
+.badgeInstaller {
+  color: var(--foreground);
+  border-color: var(--border-strong);
+}
+
+.badgeUnknown {
+  border-style: dashed;
+}
+
+/* Warnings (e.g. no license) are the brightest, heaviest badges on the card. */
+.badgeFlag {
+  font-weight: 700;
+  color: var(--hover);
+  border-color: #6a6a6a;
+}
+
+/* The full sentences under the badges: the badges never replace the explanation. */
+.details {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.details a {
+  color: var(--foreground);
+}
+
+.details a:hover {
+  color: var(--hover);
+}
+
+.flag {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.githubLink {
+  display: inline-block;
+  margin-top: 6px;
+}
+
+/* ---------- Footer ---------- */
+
+.footer {
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 22px var(--gutter);
+  border-top: 1px solid var(--hairline);
+}
+
+.footerLabel {
+  font-size: 10px;
+  color: var(--label);
+  white-space: nowrap;
+}
+
+.projectNames {
+  flex: 1;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+/* ---------- Phones and narrow windows ---------- */
+
+@media (max-width: 800px) {
+  .navLinks {
+    display: none;
+  }
+
+  .navRow {
+    grid-template-columns: 1fr auto;
+  }
+
+  .heroLabels {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .heroLabels li:nth-child(2) {
+    text-align: left;
+  }
+
+  .wordmarkWrap {
+    margin-top: 32px;
+  }
+
+  .intro,
+  .form,
+  .proof,
+  .resultsSection > * {
+    grid-column: 1 / -1;
+  }
+
+  .proof {
+    justify-self: start;
+  }
+
+  .footer {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .projectNames {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 }
 
 /* Visible to screen readers only */
